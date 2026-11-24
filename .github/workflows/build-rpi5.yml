@@ -126,6 +126,7 @@ jobs:
           EXTRA_PACKAGES: ${{ inputs.extra_packages }}
         run: |
           docker run --rm --privileged \
+            -v /dev:/dev \
             -v "$PWD:/build" \
             -w /build \
             -e LIBC \
