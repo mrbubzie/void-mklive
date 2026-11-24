@@ -1,0 +1,171 @@
+name: Build Raspberry Pi 5 Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      libc:
+        description: C library
+        type: choice
+        default: glibc
+        options:
+          - glibc
+          - musl
+
+      desktop:
+        description: Desktop environment
+        type: choice
+        default: minimal
+        options:
+          - minimal
+          - kde
+          - gnome
+          - xfce
+          - lxqt
+          - mate
+          - cinnamon
+          - cosmic
+
+      filesystem:
+        description: Root filesystem
+        type: choice
+        default: btrfs
+        options:
+          - ext4
+          - btrfs
+
+      image_size:
+        description: Image size
+        type: choice
+        default: 4GiB
+        options:
+          - 4GiB
+          - 6GiB
+          - 8GiB
+          - 12GiB
+          - 16GiB
+
+      network_manager:
+        description: Enable NetworkManager
+        type: boolean
+        default: true
+
+      bluetooth:
+        description: Enable Bluetooth
+        type: boolean
+        default: true
+
+      ssh:
+        description: Enable SSH
+        type: boolean
+        default: true
+
+      sudo:
+        description: Install sudo
+        type: boolean
+        default: true
+
+      expand:
+        description: Automatic filesystem expansion
+        type: boolean
+        default: true
+
+      hostname:
+        description: Hostname
+        type: string
+        default: void-pi
+
+      timezone:
+        description: Timezone
+        type: string
+        default: America/New_York
+
+      extra_packages:
+        description: Additional packages
+        type: string
+        default: nano
+
+      publish_release:
+        description: Publish GitHub release
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare runner
+        run: |
+          sudo modprobe loop
+          sudo modprobe btrfs
+          df -h
+          docker pull ghcr.io/void-linux/void-glibc-full:latest
+
+      - name: Build image
+        env:
+          LIBC: ${{ inputs.libc }}
+          DESKTOP: ${{ inputs.desktop }}
+          FILESYSTEM: ${{ inputs.filesystem }}
+          IMAGE_SIZE: ${{ inputs.image_size }}
+          NETWORK_MANAGER: ${{ inputs.network_manager }}
+          BLUETOOTH: ${{ inputs.bluetooth }}
+          SSH: ${{ inputs.ssh }}
+          SUDO: ${{ inputs.sudo }}
+          EXPAND: ${{ inputs.expand }}
+          PI_HOSTNAME: ${{ inputs.hostname }}
+          TIMEZONE: ${{ inputs.timezone }}
+          EXTRA_PACKAGES: ${{ inputs.extra_packages }}
+        run: |
+          docker run --rm --privileged \
+            -v "$PWD:/build" \
+            -w /build \
+            -e LIBC \
+            -e DESKTOP \
+            -e FILESYSTEM \
+            -e IMAGE_SIZE \
+            -e NETWORK_MANAGER \
+            -e BLUETOOTH \
+            -e SSH \
+            -e SUDO \
+            -e EXPAND \
+            -e PI_HOSTNAME \
+            -e TIMEZONE \
+            -e EXTRA_PACKAGES \
+            ghcr.io/void-linux/void-glibc-full:latest \
+            bash ci/rpi5/build.sh
+
+      - name: Upload image
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-rpi5-${{ inputs.libc }}-${{ inputs.desktop }}-${{ inputs.filesystem }}
+          path: output/
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Publish release
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in output/*.img.xz; do
+            test "$(stat -c%s "$f")" -lt 2147483648 || {
+              echo "Release asset exceeds 2 GiB"
+              exit 1
+            }
+          done
+
+          gh release create \
+            "rpi5-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            output/* \
+            --target "$GITHUB_SHA" \
+            --title "Void Raspberry Pi 5 build ${GITHUB_RUN_NUMBER}" \
+            --notes "Automated image; hardware boot not verified."
