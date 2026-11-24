@@ -141,7 +141,7 @@ jobs:
             -e TIMEZONE \
             -e EXTRA_PACKAGES \
             ghcr.io/void-linux/void-glibc-full:latest \
-            /bin/sh -c 'xbps-install -Sy bash && exec /bin/bash ci/rpi5/build.sh'
+            /bin/sh -c 'xbps-install -Sy bash kmod && exec /bin/bash ci/rpi5/build.sh'
 
       - name: Upload image
         uses: actions/upload-artifact@v4
